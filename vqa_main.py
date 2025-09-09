@@ -58,7 +58,7 @@ def load_and_prepare_data(config):
     
     # Replace this section with your actual data loading code
     # For example:
-    df = pd.read_csv('/home/nguyennn263/Documents/Thesis/Fintune/Dataset/text/text/evaluate_60k_data_balanced_preprocessed.csv')
+    df = pd.read_csv('/kaggle/input/auto-vivqa/text/text/evaluate_60k_data_balanced_preprocessed.csv')
     # or 
     # df = pd.read_json('your_vqa_dataset.json')
     # data = pd.read_csv('/home/nguyennn263/Documents/Thesis/Fintune/Dataset/text/text/raw_qa_5.json')
