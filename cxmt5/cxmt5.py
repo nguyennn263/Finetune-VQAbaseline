@@ -596,7 +596,6 @@ def prepare_data_from_dataframe(df):
         
         # Create image filename from image_id (assuming COCO format)
         image_filename = f"{int(row['image_id']):012d}.jpg"  # COCO format: 000000581569.jpg
-        
         questions.append({
             'question_id': row.get('index', idx),
             'image_name': image_filename,  # Use formatted filename

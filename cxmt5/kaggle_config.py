@@ -9,13 +9,15 @@ def get_kaggle_config():
     
     if is_kaggle:
         # Kaggle paths
-        base_path = '/kaggle/input/your-vqa-dataset'  # Update with your dataset name
-        image_dir = f'{base_path}/images'
+        base_path = '/kaggle/input/auto-vivqa'  # Update with your dataset name
+        image_dir = f'{base_path}/images/images'
+        text_dir = f'{base_path}/text/text'
         output_dir = '/kaggle/working'
     else:
         # Local paths (fallback)
         base_path = '/home/nguyennn263/Documents/Thesis/Fintune/Dataset'
         image_dir = f'{base_path}/images/images'
+        text_dir = f'{base_path}/text/text'
         output_dir = './outputs'
     
     # GPU detection and optimization
@@ -43,7 +45,7 @@ def get_kaggle_config():
         
         # Training parameters - optimized for Kaggle
         'batch_size': batch_size,
-        'num_epochs': 8,  # Reduced for Kaggle time limits
+        'num_epochs': 2,  # Reduced for Kaggle time limits
         'accumulation_steps': 4 // batch_size,  # Effective batch size of 4
         
         # Paths

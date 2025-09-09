@@ -1,7 +1,12 @@
 from cxmt5.config import get_improved_config
 from cxmt5.model import ImprovedVietnameseVQAModel, normalize_vietnamese_answer
 from cxmt5.cxmt5 import VietnameseVQADataset, VietnameseVQAModel, VQATrainer, prepare_data_from_dataframe
-from transformers import AutoTokenizer, CLIPProcessor
+from transformers import (
+    CLIPProcessor, CLIPModel,
+    XLMRobertaTokenizer, XLMRobertaModel,
+    T5ForConditionalGeneration, T5Tokenizer,
+    AutoTokenizer, AutoModel
+)
 import pandas as pd
 from torch.utils.data import DataLoader
 import torch
@@ -66,7 +71,8 @@ def main():
     
     # Load and prepare data
     print(f"\nLoading data...")
-    df = pd.read_csv('/home/nguyennn263/Documents/Thesis/Fintune/Dataset/text/text/evaluate_60k_data_balanced.csv')
+    df = pd.read_csv(f'{config["text_dir"]}/evaluate_60k_data_balanced_preprocessed.csv')
+
     questions = prepare_data_from_dataframe(df)
     
     # Data analysis for multiple answers
@@ -83,8 +89,8 @@ def main():
     
     # Initialize tokenizers and processors
     print(f"\nLoading tokenizers and processors...")
-    question_tokenizer = AutoTokenizer.from_pretrained(config['text_model'])
-    answer_tokenizer = AutoTokenizer.from_pretrained(config['decoder_model'])
+    question_tokenizer = XLMRobertaTokenizer.from_pretrained(config['text_model'])
+    answer_tokenizer = T5Tokenizer.from_pretrained(config['decoder_model'], legacy=False)
     clip_processor = CLIPProcessor.from_pretrained(config['vision_model'])
 
     # Test multiple answer normalization
@@ -171,8 +177,10 @@ def main():
             )
             
             pred_text = model.decoder_tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+            clean_pred_text = model.clean_generated_text(pred_text)
             print(f"  ✓ Inference successful")
-            print(f"  Sample prediction: '{pred_text}'")
+            print(f"  Sample prediction raw: '{pred_text}'")
+            print(f"  Sample prediction: '{clean_pred_text}'")
             print(f"  Sample ground truth: '{test_batch['answer_text'][0]}'")
     except Exception as e:
         print(f"  Error in inference: {e}")

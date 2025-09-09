@@ -10,7 +10,7 @@ import glob
 from collections import defaultdict
 import wandb
 from datetime import datetime
-from bartphobeit.model import ImprovedVietnameseVQAModel, normalize_vietnamese_answer
+from cxmt5.model import ImprovedVietnameseVQAModel, normalize_vietnamese_answer
 
 # Install required packages for evaluation
 try:
@@ -185,7 +185,7 @@ class ImprovedVQATrainer:
     
     def calculate_comprehensive_metrics(self, predictions, ground_truths):
         """Calculate comprehensive VQA metrics including BLEU, ROUGE, CIDEr"""
-        from bartphobeit.model import normalize_vietnamese_answer
+        from cxmt5.model import normalize_vietnamese_answer
         
         # Normalize answers
         norm_predictions = [normalize_vietnamese_answer(pred) for pred in predictions]

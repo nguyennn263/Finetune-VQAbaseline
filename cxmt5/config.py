@@ -19,14 +19,15 @@ def get_improved_config():
     return {
         'vision_model': 'openai/clip-vit-base-patch32',
         'text_model': 'xlm-roberta-base',
-        'decoder_model': 'google/mt5-base',
+        'decoder_model': 'google/mt5-small',
         'hidden_dim': 768,  # Standard dimension for base models
         'max_length': 128,
         'batch_size': 1,  # Reduced for GPU memory
         'num_epochs': 3,
         'image_dir': '/home/nguyennn263/Documents/Thesis/Fintune/Dataset/images/images',
-        'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-        # 'device': 'cpu',
+        'text_dir': '/home/nguyennn263/Documents/Thesis/Fintune/Dataset/text/text',
+        # 'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+        'device': 'cpu',
         
         # cxmt5 specific configurations
         'use_vqkd': True,  # Enable VQ-KD Visual Tokenizer
