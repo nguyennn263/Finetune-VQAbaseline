@@ -38,7 +38,7 @@ def get_kaggle_config():
         # Model configurations
         'vision_model': 'openai/clip-vit-base-patch32',
         'text_model': 'xlm-roberta-base', 
-        'decoder_model': 'google/mt5-base',
+        'decoder_model': 'google/mt5-small',
         'hidden_dim': 768,
         'max_length': 128,
         'device': 'cuda' if has_gpu else 'cpu',
