@@ -51,6 +51,7 @@ def get_kaggle_config():
         # Paths
         'image_dir': image_dir,
         'output_dir': output_dir,
+        'text_dir': text_dir,
         'checkpoint_dir': f'{output_dir}/checkpoints',
         
         # Performance optimizations for Kaggle GPU
