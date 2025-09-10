@@ -98,6 +98,8 @@ def get_kaggle_config():
         'gradient_checkpointing': True,
         'dataloader_drop_last': True,
         'empty_cache_every_n_steps': 100,
+        
+        'version': "1.1",
     }
     
     return config
