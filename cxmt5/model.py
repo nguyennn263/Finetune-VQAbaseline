@@ -682,28 +682,35 @@ class ImprovedVietnameseVQAModel(nn.Module):
             
             encoder_outputs = self.create_encoder_outputs(pooled_encoder_states)
             
-            # For mT5, use task-specific prefix to guide generation
-            # This helps the model understand this is a VQA task, not denoising
-            
+            # Enhanced generation parameters to reduce special tokens
             pad_token_id = self.decoder_tokenizer.pad_token_id
             eos_token_id = self.decoder_tokenizer.eos_token_id
+            
+            # Get special token IDs to suppress them during generation
+            special_token_ids = []
+            vocab = self.decoder_tokenizer.get_vocab()
+            for token, token_id in vocab.items():
+                if '<extra_id_' in token or token in ['<pad>', '<unk>', '<mask>']:
+                    special_token_ids.append(token_id)
             
             # Create a simple prefix for VQA task
             batch_size = encoder_outputs.last_hidden_state.shape[0]
             
-            # Simple generation with constrained parameters
+            # Enhanced generation with special token suppression
             generated_ids = self.text_decoder.generate(
                 encoder_outputs=encoder_outputs,
-                max_new_tokens=15,  # Reduced from 20 for faster evaluation
+                max_new_tokens=12,  # Shorter for cleaner outputs
                 min_length=2,
-                num_beams=1,  # Greedy search
-                # early_stopping=True,  # Not valid with num_beams=1
+                num_beams=1,  # Greedy search for consistency
                 pad_token_id=pad_token_id,
                 eos_token_id=eos_token_id,
                 do_sample=False,
                 use_cache=True,
                 output_scores=False,
-                return_dict_in_generate=False
+                return_dict_in_generate=False,
+                repetition_penalty=1.1,  # Reduce repetition
+                length_penalty=1.0,      # Neutral length preference
+                bad_words_ids=[[token_id] for token_id in special_token_ids[:50]] if special_token_ids else None  # Suppress special tokens
             )
             
             return generated_ids
@@ -774,16 +781,24 @@ class ImprovedVietnameseVQAModel(nn.Module):
         return bad_words if bad_words else None
 
     def clean_generated_text(self, text):
-        """Clean generated text from mT5 artifacts"""
+        """Enhanced cleaning for mT5 generated text"""
         if not isinstance(text, str):
             return ""
         
-        # Remove mT5 special tokens
-        text = re.sub(r'<extra_id_\d+>', '', text)
+        # Remove all T5/mT5 special tokens (more comprehensive)
+        text = re.sub(r'<extra_id_\d+>', '', text)  # Remove <extra_id_0>, <extra_id_1>, etc.
         text = re.sub(r'<pad>', '', text)
         text = re.sub(r'<unk>', '', text)
         text = re.sub(r'</s>', '', text)
         text = re.sub(r'<s>', '', text)
+        text = re.sub(r'<mask>', '', text)
+        
+        # Remove any remaining angle bracket tokens
+        text = re.sub(r'<[^>]*>', '', text)
+        
+        # Clean up special characters and artifacts
+        text = re.sub(r'[~$()[\]{}]', '', text)  # Remove common artifacts
+        text = re.sub(r'[^\w\sàáảãạâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđĐ.,!?-]', '', text)
         
         # Remove excessive whitespace and dots
         text = re.sub(r'\.{2,}', '.', text)  # Multiple dots -> single dot
@@ -792,7 +807,12 @@ class ImprovedVietnameseVQAModel(nn.Module):
         # Remove leading/trailing punctuation artifacts
         text = re.sub(r'^[.,\s]+|[.,\s]+$', '', text)
         
-        return text.strip()
+        # Remove very short meaningless outputs
+        cleaned = text.strip()
+        if len(cleaned) <= 2 or cleaned.isdigit():
+            return ""
+        
+        return cleaned
 
 def compute_vqa_score_single(prediction, reference_answers):
     """

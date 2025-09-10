@@ -474,12 +474,14 @@ class VQATrainer:
         
         return metrics, predictions, all_correct_answers
     
-    def train(self, num_epochs):
+    def train(self, num_epochs, start_epoch=1):
         """Enhanced training loop with VQA score tracking"""
         best_vqa_score = 0
         best_multi_fuzzy = 0
         
         for epoch in range(num_epochs):
+            if epoch + 1 < start_epoch:
+                continue
             print(f"\nEpoch {epoch + 1}/{num_epochs}")
             print("-" * 80)
             

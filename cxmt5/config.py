@@ -66,7 +66,7 @@ def get_improved_config():
         'augment_ratio': 0.2,
         
         # Logging and checkpoints
-        'use_wandb': True,
+        'use_wandb': False,
         'project_name': 'CXMT5-Vietnamese-VQA',
         'save_every_n_epochs': 1,
         'keep_last_n_checkpoints': 5,
@@ -77,5 +77,5 @@ def get_improved_config():
         'calculate_bleu_rouge': True,
         'calculate_cider': True,
         
-        'version': "1.1"
+        'version': "1.1",
     }

@@ -17,7 +17,8 @@ The script will automatically:
 
 from cxmt5.config import get_improved_config
 from cxmt5.model import ImprovedVietnameseVQAModel, normalize_vietnamese_answer
-from cxmt5.cxmt5 import VietnameseVQADataset, VietnameseVQAModel, VQATrainer, prepare_data_from_dataframe
+from cxmt5.cxmt5 import VietnameseVQADataset, VietnameseVQAModel, prepare_data_from_dataframe
+from cxmt5.trainer import ImprovedVQATrainer
 from transformers import (
     CLIPProcessor, CLIPModel,
     XLMRobertaTokenizer, XLMRobertaModel,
@@ -77,47 +78,6 @@ def analyze_data_balance(questions):
     return answer_counts
 
 
-def list_available_checkpoints():
-    """List all available checkpoint files"""
-    import os
-    import glob
-    
-    checkpoint_patterns = [
-        "checkpoints/*.pth",
-        "checkpoints/*.pt", 
-        "*.pth",
-        "*.pt",
-        "*checkpoint*",
-        "*epoch*"
-    ]
-    
-    print(f"\nScanning for available checkpoints...")
-    all_checkpoints = []
-    
-    for pattern in checkpoint_patterns:
-        checkpoints = glob.glob(pattern)
-        all_checkpoints.extend(checkpoints)
-    
-    # Remove duplicates and sort
-    all_checkpoints = sorted(list(set(all_checkpoints)))
-    
-    if all_checkpoints:
-        print(f"Found {len(all_checkpoints)} checkpoint file(s):")
-        for i, checkpoint in enumerate(all_checkpoints, 1):
-            size = os.path.getsize(checkpoint) / (1024*1024)  # MB
-            mtime = os.path.getmtime(checkpoint)
-            import datetime
-            mod_time = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
-            print(f"  {i}. {checkpoint}")
-            print(f"     Size: {size:.1f} MB, Modified: {mod_time}")
-        
-        print(f"\nRecommended checkpoint: {all_checkpoints[0]}")
-        return all_checkpoints
-    else:
-        print(f"No checkpoint files found.")
-        return []
-
-
 def main():
     """Enhanced main training function with multiple answers support"""
     
@@ -133,9 +93,9 @@ def main():
     # 4. Có thể điều chỉnh TOTAL_EPOCHS để training thêm nhiều epoch hơn
     
     RESUME_TRAINING = False  # Set to True to resume from checkpoint
-    CHECKPOINT_PATH = "checkpoints/best_fuzzy_model.pth"  # Path to checkpoint
-    START_EPOCH = 3  # Epoch to start from (after 2 completed epochs)
-    TOTAL_EPOCHS = 10  # Total epochs you want (có thể tăng từ 5 lên 10 để train thêm)
+    CHECKPOINT_PATH = "checkpoints/checkpoint_epoch_3.pt"  # Path to checkpoint
+    START_EPOCH = 4  # Epoch to start from (after 2 completed epochs)
+    TOTAL_EPOCHS = 6  # Total epochs you want (có thể tăng từ 5 lên 10 để train thêm)
     
     # Override config epochs if specified
     if TOTAL_EPOCHS:
@@ -145,14 +105,10 @@ def main():
     print(f"Using device: {config['device']}")
     
     # List available checkpoints for reference
-    available_checkpoints = list_available_checkpoints()
     
     if RESUME_TRAINING:
         print(f"\n🔄 Resume training mode: Starting from epoch {START_EPOCH}")
         print(f"📁 Checkpoint path: {CHECKPOINT_PATH}")
-        if CHECKPOINT_PATH not in available_checkpoints and available_checkpoints:
-            print(f"⚠️  Warning: Specified checkpoint not found in scan results")
-            print(f"   Consider using one of the found checkpoints above")
     else:
         print(f"\n🆕 Fresh training mode: Starting from epoch 1")
     
@@ -163,7 +119,7 @@ def main():
     questions = prepare_data_from_dataframe(df)
     
     # Data analysis for multiple answers
-    analyze_data_balance(questions)
+    # analyze_data_balance(questions)
     
     # Split data
     split_idx = int(0.8 * len(questions))
@@ -230,21 +186,32 @@ def main():
                 checkpoint = torch.load(CHECKPOINT_PATH, map_location=config['device'])
                 
                 # Load model state
-                model.load_state_dict(checkpoint['model_state_dict'])
-                print(f"  ✓ Model state loaded successfully")
+                if 'model_state_dict' in checkpoint:
+                    model.load_state_dict(checkpoint['model_state_dict'])
+                    print(f"  ✓ Model state loaded successfully")
+                else:
+                    # Fallback for simple model checkpoints
+                    model.load_state_dict(checkpoint)
+                    print(f"  ✓ Model state loaded successfully (legacy format)")
                 
                 # Get training info
                 if 'epoch' in checkpoint:
-                    start_epoch = checkpoint['epoch'] + 1
-                    print(f"  ✓ Will resume from epoch {start_epoch}")
+                    saved_epoch = checkpoint['epoch']
+                    start_epoch = saved_epoch + 1
+                    print(f"  ✓ Will resume from epoch {start_epoch} (after completed epoch {saved_epoch})")
                 else:
                     start_epoch = START_EPOCH
                     print(f"  ✓ Will start from configured epoch {start_epoch}")
                 
-                if 'best_accuracy' in checkpoint:
+                # Get best accuracy info
+                if 'best_fuzzy_accuracy' in checkpoint:
+                    best_accuracy = checkpoint['best_fuzzy_accuracy']
+                    print(f"  ✓ Previous best fuzzy accuracy: {best_accuracy:.4f}")
+                elif 'best_accuracy' in checkpoint:
                     best_accuracy = checkpoint['best_accuracy']
                     print(f"  ✓ Previous best accuracy: {best_accuracy:.4f}")
                 
+                # Load config if available
                 if 'config' in checkpoint:
                     saved_config = checkpoint['config']
                     print(f"  ✓ Checkpoint config loaded")
@@ -327,12 +294,17 @@ def main():
     
     # Initialize trainer
     print(f"\nInitializing VQA trainer...")
-    trainer = VQATrainer(model, train_loader, val_loader, torch.device(config['device']), config)
+    trainer = ImprovedVQATrainer(model, train_loader, val_loader, torch.device(config['device']), config)
     
-    # Set resume state if loading from checkpoint
-    if RESUME_TRAINING and best_accuracy > 0:
-        trainer.best_accuracy = best_accuracy
-        print(f"  ✓ Trainer initialized with best accuracy: {best_accuracy:.4f}")
+    # Load trainer state if resuming from checkpoint
+    if RESUME_TRAINING and os.path.exists(CHECKPOINT_PATH) and best_accuracy > 0:
+        print(f"\nLoading trainer state from checkpoint...")
+        trainer.load_checkpoint(CHECKPOINT_PATH)
+    
+    # Load trainer state if resuming training
+    if RESUME_TRAINING and os.path.exists(CHECKPOINT_PATH):
+        print(f"\nLoading trainer state from checkpoint...")
+        trainer.load_checkpoint(CHECKPOINT_PATH)
     
     # Start training
     print(f"\n{'='*80}")
