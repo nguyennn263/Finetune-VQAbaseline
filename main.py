@@ -37,47 +37,6 @@ print(torch.version.cuda)
 print(torch.cuda.is_available())
 
 
-
-def analyze_data_balance(questions):
-    """Analyze answer distribution for balance with multiple answers support"""
-    from collections import Counter
-    from cxmt5.model import normalize_vietnamese_answer
-    
-    # Collect all answers (including all 5 per question)
-    all_answers = []
-    for q in questions:
-        if 'all_correct_answers' in q and q['all_correct_answers']:
-            # Add all 5 correct answers
-            all_answers.extend([normalize_vietnamese_answer(ans) for ans in q['all_correct_answers']])
-        else:
-            # Fallback to ground_truth
-            all_answers.append(normalize_vietnamese_answer(q['ground_truth']))
-    
-    answer_counts = Counter(all_answers)
-    
-    print(f"\nData Balance Analysis (Multiple Answers):")
-    print(f"  Total questions: {len(questions):,}")
-    print(f"  Total answer instances: {len(all_answers):,}")
-    print(f"  Average answers per question: {len(all_answers) / len(questions):.2f}")
-    print(f"  Unique answers: {len(answer_counts):,}")
-    print(f"  Top 10 most common answers:")
-    
-    for answer, count in answer_counts.most_common(10):
-        percentage = (count / len(all_answers)) * 100
-        print(f"    '{answer}': {count} ({percentage:.2f}%)")
-    
-    # Check for severe imbalance
-    most_common_count = answer_counts.most_common(1)[0][1]
-    imbalance_ratio = most_common_count / len(all_answers)
-    
-    if imbalance_ratio > 0.2:  # Lower threshold for multiple answers
-        print(f"Severe imbalance detected: {imbalance_ratio:.2f} of answers are the same")
-    else:
-        print(f"Data balance looks good: {imbalance_ratio:.2f}")
-
-    return answer_counts
-
-
 def main():
     """Enhanced main training function with multiple answers support"""
     
