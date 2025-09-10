@@ -148,35 +148,76 @@ class ImprovedVQATrainer:
         for group in param_groups:
             print(f"  {group['name']}: {len(group['params'])} params, lr={group['lr']}")
     
-    def evaluate_vqa(self):
-        """Enhanced VQA evaluation with comprehensive metrics"""
+    def evaluate_vqa(self, fast_eval=False):
+        """Enhanced VQA evaluation with comprehensive metrics
+        
+        Args:
+            fast_eval: If True, only evaluate first 200 batches for speed
+        """
         self.model.eval()
         predictions = []
         ground_truths = []
+        total_loss = 0
         
-        progress_bar = tqdm(self.val_loader, desc="Evaluating", leave=False)
+        # Limit evaluation size for speed during training
+        eval_loader = self.val_loader
+        if fast_eval:
+            max_batches = min(200, len(self.val_loader))
+            print(f"Fast evaluation: using {max_batches} batches out of {len(self.val_loader)}")
+        else:
+            max_batches = len(self.val_loader)
+        
+        progress_bar = tqdm(eval_loader, desc="Evaluating", leave=False, total=max_batches)
         
         with torch.no_grad():
-            for batch in progress_bar:
+            for batch_idx, batch in enumerate(progress_bar):
+                if fast_eval and batch_idx >= max_batches:
+                    break
+                    
                 # Move batch to device
                 for key in batch:
                     if isinstance(batch[key], torch.Tensor):
                         batch[key] = batch[key].to(self.device)
                 
-                # Generate predictions
-                generated_ids = self.model(
-                    pixel_values=batch['pixel_values'],
-                    question_input_ids=batch['question_input_ids'],
-                    question_attention_mask=batch['question_attention_mask']
-                )
-                
-                # Decode predictions
-                pred_texts = self.model.decoder_tokenizer.batch_decode(
-                    generated_ids, skip_special_tokens=True
-                )
-                
-                predictions.extend(pred_texts)
-                ground_truths.extend(batch['answer_text'])
+                try:
+                    # Calculate validation loss first (faster)
+                    outputs = self.model(
+                        pixel_values=batch['pixel_values'],
+                        question_input_ids=batch['question_input_ids'],
+                        question_attention_mask=batch['question_attention_mask'],
+                        answer_input_ids=batch['answer_input_ids'],
+                        answer_attention_mask=batch['answer_attention_mask']
+                    )
+                    total_loss += outputs.loss.item()
+                    
+                    # Generate predictions (slower)
+                    generated_ids = self.model(
+                        pixel_values=batch['pixel_values'],
+                        question_input_ids=batch['question_input_ids'],
+                        question_attention_mask=batch['question_attention_mask']
+                    )
+                    
+                    # Decode predictions
+                    pred_texts = self.model.decoder_tokenizer.batch_decode(
+                        generated_ids, skip_special_tokens=True
+                    )
+                    
+                    predictions.extend(pred_texts)
+                    ground_truths.extend(batch['answer_text'])
+                    
+                    # Update progress bar with loss info
+                    avg_loss = total_loss / (batch_idx + 1)
+                    progress_bar.set_postfix({
+                        'Val Loss': f"{avg_loss:.4f}"
+                    })
+                    
+                except Exception as e:
+                    print(f"Error in evaluation batch {batch_idx}: {e}")
+                    # Skip this batch and continue
+                    batch_size = len(batch['answer_text'])
+                    predictions.extend([""] * batch_size)
+                    ground_truths.extend(batch['answer_text'])
+                    continue
         
         # Calculate comprehensive metrics
         metrics = self.calculate_comprehensive_metrics(predictions, ground_truths)
@@ -411,8 +452,8 @@ class ImprovedVQATrainer:
             # Train
             train_loss = self.train_epoch(epoch)
             
-            # Evaluate
-            val_metrics, predictions, ground_truths = self.evaluate_vqa()
+            # Evaluate (full evaluation at end of epoch)
+            val_metrics, predictions, ground_truths = self.evaluate_vqa(fast_eval=False)
             
             # Print comprehensive results
             print(f"\nEpoch {epoch + 1} Results:")
@@ -595,7 +636,7 @@ class ImprovedVQATrainer:
             
             if (eval_freq > 0 and self.global_step % eval_freq == 0):
                 print(f"\nEvaluating at step {self.global_step}...")
-                val_metrics, predictions, ground_truths = self.evaluate_vqa()
+                val_metrics, predictions, ground_truths = self.evaluate_vqa(fast_eval=True)  # Fast eval during training
                 
                 # Step-level logging for debugging
                 print(f"Step {self.global_step} metrics:")

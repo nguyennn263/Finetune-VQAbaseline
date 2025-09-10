@@ -694,10 +694,10 @@ class ImprovedVietnameseVQAModel(nn.Module):
             # Simple generation with constrained parameters
             generated_ids = self.text_decoder.generate(
                 encoder_outputs=encoder_outputs,
-                max_new_tokens=20,  # Very short answers
+                max_new_tokens=15,  # Reduced from 20 for faster evaluation
                 min_length=2,
                 num_beams=1,  # Greedy search
-                early_stopping=True,
+                # early_stopping=True,  # Not valid with num_beams=1
                 pad_token_id=pad_token_id,
                 eos_token_id=eos_token_id,
                 do_sample=False,
