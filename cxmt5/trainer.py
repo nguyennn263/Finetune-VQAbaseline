@@ -413,12 +413,9 @@ class ImprovedVQATrainer:
         
         return metrics
     
-    def save_checkpoint(self, epoch, metrics, is_best=False):
-        """Enhanced checkpoint saving with better error handling"""
+    def save_checkpoint(self, epoch, metrics, is_best=False, is_final=False):
+        """Save only best_model and final_model"""
         try:
-            # Ensure checkpoint directory exists
-            os.makedirs(self.checkpoint_dir, exist_ok=True)
-            
             checkpoint = {
                 'epoch': epoch,
                 'global_step': self.global_step,
@@ -433,51 +430,28 @@ class ImprovedVQATrainer:
                 'best_f1': self.best_f1
             }
             
-            # Save regular checkpoint
-            checkpoint_path = os.path.join(self.checkpoint_dir, f'checkpoint_epoch_{epoch+1}.pt')
-            torch.save(checkpoint, checkpoint_path)
-            print(f"Checkpoint saved: {checkpoint_path}")
-            
             # Save best model
             if is_best:
-                best_path = 'best_fuzzy_model.pth'
+                best_path = 'best_model.pth'
                 torch.save(checkpoint, best_path)
                 print(f"✓ New best model saved: {best_path}")
-                
-                # Also save to checkpoints directory
-                best_checkpoint_path = os.path.join(self.checkpoint_dir, 'best_model.pt')
-                torch.save(checkpoint, best_checkpoint_path)
+                return best_path
             
-            # Keep only last N checkpoints
-            self.cleanup_checkpoints()
+            # Save final model (last epoch)
+            if is_final:
+                final_path = 'final_model.pth'
+                torch.save(checkpoint, final_path)
+                print(f"✓ Final model saved: {final_path}")
+                return final_path
             
-            return checkpoint_path
+            return None
             
         except Exception as e:
             print(f"Error saving checkpoint: {e}")
             import traceback
             traceback.print_exc()
             return None
-    
-    def cleanup_checkpoints(self):
-        """Keep only the last N checkpoints"""
-        try:
-            keep_n = self.config.get('keep_last_n_checkpoints', 3)
-            checkpoints = glob.glob(os.path.join(self.checkpoint_dir, 'checkpoint_epoch_*.pt'))
-            
-            if len(checkpoints) > keep_n:
-                # Sort by creation time
-                checkpoints.sort(key=os.path.getctime)
-                
-                # Remove oldest checkpoints
-                for checkpoint in checkpoints[:-keep_n]:
-                    try:
-                        os.remove(checkpoint)
-                        print(f"Removed old checkpoint: {os.path.basename(checkpoint)}")
-                    except Exception as e:
-                        print(f"Failed to remove checkpoint {checkpoint}: {e}")
-        except Exception as e:
-            print(f"Error during checkpoint cleanup: {e}")
+
     
     def save_predictions(self, predictions, ground_truths, epoch, metrics):
         """Save predictions and ground truths for analysis"""
@@ -503,7 +477,8 @@ class ImprovedVQATrainer:
             })
         
         # Save to JSON
-        results_file = f'predictions_epoch_{epoch+1}_{timestamp}.json'
+        os.makedirs('log', exist_ok=True)
+        results_file = f'log/predictions_epoch_{epoch+1}_{timestamp}.json'
         with open(results_file, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         
@@ -599,7 +574,7 @@ class ImprovedVQATrainer:
                         'val_rouge_l': val_metrics.get('rouge_l', 0.0)
                     })
                 
-                # wandb.log(log_dict)
+                wandb.log(log_dict)
             
             # Check if this is the best model
             is_best = val_metrics['fuzzy_accuracy'] > self.best_fuzzy_accuracy
@@ -608,16 +583,21 @@ class ImprovedVQATrainer:
                 self.best_accuracy = val_metrics['accuracy']
                 self.best_f1 = val_metrics['f1_score']
             
-            # Save checkpoint every epoch
-            checkpoint_path = self.save_checkpoint(current_epoch - 1, val_metrics, is_best)  # 0-indexed for internal
-            if checkpoint_path:
-                print(f"Checkpoint saved: {os.path.basename(checkpoint_path)}")
+            # Save checkpoint only if it's the best model
+            if is_best:
+                checkpoint_path = self.save_checkpoint(current_epoch - 1, val_metrics, is_best=True)  # 0-indexed for internal
+                if checkpoint_path:
+                    print(f"✓ Best model saved: {os.path.basename(checkpoint_path)}")
+                print(f"🎉 New best fuzzy accuracy: {self.best_fuzzy_accuracy:.4f}")
+            else:
+                print(f"Current fuzzy accuracy: {val_metrics['fuzzy_accuracy']:.4f} (Best: {self.best_fuzzy_accuracy:.4f})")
             
             # Save predictions
             self.save_predictions(predictions, ground_truths, current_epoch - 1, val_metrics)  # 0-indexed for internal
-            
-            if is_best:
-                print(f"🎉 New best fuzzy accuracy: {self.best_fuzzy_accuracy:.4f}")
+        
+        # Save final model (last epoch) 
+        print(f"\nSaving final model...")
+        final_checkpoint_path = self.save_checkpoint(current_epoch - 1, val_metrics, is_best=False, is_final=True)
         
         # Final summary
         print(f"\n{'='*80}")
@@ -627,6 +607,9 @@ class ImprovedVQATrainer:
         print(f"  Fuzzy Accuracy: {self.best_fuzzy_accuracy:.4f}")
         print(f"  Exact Match Accuracy: {self.best_accuracy:.4f}")
         print(f"  F1 Score: {self.best_f1:.4f}")
+        print(f"Models saved:")
+        print(f"  Best model: best_model.pth")
+        print(f"  Final model: final_model.pth")
         
         if self.use_wandb:
             wandb.log({

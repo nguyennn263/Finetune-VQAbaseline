@@ -3,7 +3,7 @@ Enhanced Vietnamese VQA Training Script with Resume Capability
 
 USAGE FOR RESUME TRAINING:
 1. Set RESUME_TRAINING = True in main() function
-2. Set CHECKPOINT_PATH to your checkpoint file (e.g., "checkpoints/best_fuzzy_model.pth")  
+2. Set CHECKPOINT_PATH to your checkpoint file (e.g., "checkpoints/best_model.pt")  
 3. Set START_EPOCH to the next epoch number (e.g., 3 to continue after epoch 2)
 4. Optionally adjust TOTAL_EPOCHS to train for more epochs
 5. Run: python main.py
@@ -93,7 +93,7 @@ def main():
     # 4. Có thể điều chỉnh TOTAL_EPOCHS để training thêm nhiều epoch hơn
     
     RESUME_TRAINING = False  # Set to True to resume from checkpoint
-    CHECKPOINT_PATH = "checkpoints/checkpoint_epoch_3.pt"  # Path to checkpoint
+    CHECKPOINT_PATH = "checkpoints/best_model.pt"  # Path to checkpoint
     START_EPOCH = 4  # Epoch to start from (after 2 completed epochs)
     TOTAL_EPOCHS = 6  # Total epochs you want (có thể tăng từ 5 lên 10 để train thêm)
     
