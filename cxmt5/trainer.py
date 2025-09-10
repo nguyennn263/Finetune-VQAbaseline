@@ -439,24 +439,27 @@ class ImprovedVQATrainer:
         
         print(f"Predictions saved to: {results_file}")
     
-    def train(self, num_epochs):
+    def train(self, num_epochs, start_epoch=1):
         """Enhanced full training loop"""
+        end_epoch = start_epoch + num_epochs - 1
         print(f"Starting enhanced training for {num_epochs} epochs:")
         print(f"  Stage 1 (Frozen encoders): epochs 1-{self.config['stage1_epochs']}")
-        print(f"  Stage 2 (Partial unfreeze): epochs {self.config['stage1_epochs']+1}-{num_epochs}")
+        print(f"  Stage 2 (Partial unfreeze): epochs {self.config['stage1_epochs']+1}-{end_epoch}")
+        print(f"  Training from epoch {start_epoch} to {end_epoch}")
         
         for epoch in range(num_epochs):
-            print(f"\nEpoch {epoch + 1}/{num_epochs}")
+            current_epoch = start_epoch + epoch
+            print(f"\nEpoch {current_epoch}/{end_epoch}")
             print("-" * 80)
             
             # Train
-            train_loss = self.train_epoch(epoch)
+            train_loss = self.train_epoch(current_epoch - 1)  # train_epoch expects 0-indexed
             
             # Evaluate (full evaluation at end of epoch)
             val_metrics, predictions, ground_truths = self.evaluate_vqa(fast_eval=False)
             
             # Print comprehensive results
-            print(f"\nEpoch {epoch + 1} Results:")
+            print(f"\nEpoch {current_epoch} Results:")
             print(f"  Train Loss: {train_loss:.4f}")
             print(f"  Validation Metrics:")
             print(f"    Exact Match Accuracy: {val_metrics['accuracy']:.4f}")
@@ -497,7 +500,7 @@ class ImprovedVQATrainer:
             # Log to wandb with safe key access
             if self.use_wandb:
                 log_dict = {
-                    'epoch': epoch,
+                    'epoch': current_epoch,
                     'train_loss': train_loss,
                     'val_accuracy': val_metrics['accuracy'],
                     'val_fuzzy_accuracy': val_metrics['fuzzy_accuracy'],
@@ -536,12 +539,12 @@ class ImprovedVQATrainer:
                 self.best_f1 = val_metrics['f1_score']
             
             # Save checkpoint
-            if (epoch + 1) % self.config.get('save_every_n_epochs', 1) == 0:
-                checkpoint_path = self.save_checkpoint(epoch, val_metrics, is_best)
+            if current_epoch % self.config.get('save_every_n_epochs', 1) == 0:
+                checkpoint_path = self.save_checkpoint(current_epoch - 1, val_metrics, is_best)  # 0-indexed for internal
                 print(f"Checkpoint saved: {os.path.basename(checkpoint_path)}")
             
             # Save predictions
-            self.save_predictions(predictions, ground_truths, epoch, val_metrics)
+            self.save_predictions(predictions, ground_truths, current_epoch - 1, val_metrics)  # 0-indexed for internal
             
             if is_best:
                 print(f"🎉 New best fuzzy accuracy: {self.best_fuzzy_accuracy:.4f}")

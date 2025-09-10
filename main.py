@@ -1,3 +1,20 @@
+"""
+Enhanced Vietnamese VQA Training Script with Resume Capability
+
+USAGE FOR RESUME TRAINING:
+1. Set RESUME_TRAINING = True in main() function
+2. Set CHECKPOINT_PATH to your checkpoint file (e.g., "checkpoints/best_fuzzy_model.pth")  
+3. Set START_EPOCH to the next epoch number (e.g., 3 to continue after epoch 2)
+4. Optionally adjust TOTAL_EPOCHS to train for more epochs
+5. Run: python main.py
+
+The script will automatically:
+- Load the saved model weights
+- Resume from the specified epoch
+- Continue training with the remaining epochs
+- Show training improvement since checkpoint
+"""
+
 from cxmt5.config import get_improved_config
 from cxmt5.model import ImprovedVietnameseVQAModel, normalize_vietnamese_answer
 from cxmt5.cxmt5 import VietnameseVQADataset, VietnameseVQAModel, VQATrainer, prepare_data_from_dataframe
@@ -60,19 +77,89 @@ def analyze_data_balance(questions):
     return answer_counts
 
 
+def list_available_checkpoints():
+    """List all available checkpoint files"""
+    import os
+    import glob
+    
+    checkpoint_patterns = [
+        "checkpoints/*.pth",
+        "checkpoints/*.pt", 
+        "*.pth",
+        "*.pt",
+        "*checkpoint*",
+        "*epoch*"
+    ]
+    
+    print(f"\nScanning for available checkpoints...")
+    all_checkpoints = []
+    
+    for pattern in checkpoint_patterns:
+        checkpoints = glob.glob(pattern)
+        all_checkpoints.extend(checkpoints)
+    
+    # Remove duplicates and sort
+    all_checkpoints = sorted(list(set(all_checkpoints)))
+    
+    if all_checkpoints:
+        print(f"Found {len(all_checkpoints)} checkpoint file(s):")
+        for i, checkpoint in enumerate(all_checkpoints, 1):
+            size = os.path.getsize(checkpoint) / (1024*1024)  # MB
+            mtime = os.path.getmtime(checkpoint)
+            import datetime
+            mod_time = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+            print(f"  {i}. {checkpoint}")
+            print(f"     Size: {size:.1f} MB, Modified: {mod_time}")
+        
+        print(f"\nRecommended checkpoint: {all_checkpoints[0]}")
+        return all_checkpoints
+    else:
+        print(f"No checkpoint files found.")
+        return []
+
+
 def main():
     """Enhanced main training function with multiple answers support"""
     
     # Load improved configuration
     config = get_improved_config()
     
+    # Configuration for resuming training
+    # ================================
+    # Để tiếp tục training từ checkpoint:
+    # 1. Set RESUME_TRAINING = True
+    # 2. Điều chỉnh CHECKPOINT_PATH tới file checkpoint của bạn  
+    # 3. Set START_EPOCH = epoch muốn bắt đầu (ví dụ: 3 để tiếp tục sau epoch 2)
+    # 4. Có thể điều chỉnh TOTAL_EPOCHS để training thêm nhiều epoch hơn
+    
+    RESUME_TRAINING = False  # Set to True to resume from checkpoint
+    CHECKPOINT_PATH = "checkpoints/best_fuzzy_model.pth"  # Path to checkpoint
+    START_EPOCH = 3  # Epoch to start from (after 2 completed epochs)
+    TOTAL_EPOCHS = 10  # Total epochs you want (có thể tăng từ 5 lên 10 để train thêm)
+    
+    # Override config epochs if specified
+    if TOTAL_EPOCHS:
+        config['num_epochs'] = TOTAL_EPOCHS
+    
     print(f"Enhanced Vietnamese VQA Training with Multiple Correct Answers")
     print(f"Using device: {config['device']}")
+    
+    # List available checkpoints for reference
+    available_checkpoints = list_available_checkpoints()
+    
+    if RESUME_TRAINING:
+        print(f"\n🔄 Resume training mode: Starting from epoch {START_EPOCH}")
+        print(f"📁 Checkpoint path: {CHECKPOINT_PATH}")
+        if CHECKPOINT_PATH not in available_checkpoints and available_checkpoints:
+            print(f"⚠️  Warning: Specified checkpoint not found in scan results")
+            print(f"   Consider using one of the found checkpoints above")
+    else:
+        print(f"\n🆕 Fresh training mode: Starting from epoch 1")
     
     # Load and prepare data
     print(f"\nLoading data...")
     df = pd.read_csv(f'{config["text_dir"]}/evaluate_60k_data_balanced_preprocessed.csv')
-
+    df = df.iloc[:5]
     questions = prepare_data_from_dataframe(df)
     
     # Data analysis for multiple answers
@@ -130,6 +217,56 @@ def main():
     print(f"\nInitializing enhanced model...")
     model = ImprovedVietnameseVQAModel(config)
     model = model.to(config['device'])
+    
+    # Load checkpoint if resuming training
+    start_epoch = 1
+    best_accuracy = 0.0
+    
+    if RESUME_TRAINING:
+        import os
+        if os.path.exists(CHECKPOINT_PATH):
+            print(f"\nLoading checkpoint from {CHECKPOINT_PATH}...")
+            try:
+                checkpoint = torch.load(CHECKPOINT_PATH, map_location=config['device'])
+                
+                # Load model state
+                model.load_state_dict(checkpoint['model_state_dict'])
+                print(f"  ✓ Model state loaded successfully")
+                
+                # Get training info
+                if 'epoch' in checkpoint:
+                    start_epoch = checkpoint['epoch'] + 1
+                    print(f"  ✓ Will resume from epoch {start_epoch}")
+                else:
+                    start_epoch = START_EPOCH
+                    print(f"  ✓ Will start from configured epoch {start_epoch}")
+                
+                if 'best_accuracy' in checkpoint:
+                    best_accuracy = checkpoint['best_accuracy']
+                    print(f"  ✓ Previous best accuracy: {best_accuracy:.4f}")
+                
+                if 'config' in checkpoint:
+                    saved_config = checkpoint['config']
+                    print(f"  ✓ Checkpoint config loaded")
+                    print(f"    - Original batch size: {saved_config.get('batch_size', 'N/A')}")
+                    print(f"    - Original learning rates: decoder={saved_config.get('decoder_lr', 'N/A'):.2e}")
+                
+                print(f"  ✓ Checkpoint loaded successfully!")
+                
+            except Exception as e:
+                print(f"  ✗ Error loading checkpoint: {e}")
+                print(f"  Starting fresh training instead...")
+                start_epoch = 1
+                best_accuracy = 0.0
+        else:
+            print(f"\n⚠️  Checkpoint file not found: {CHECKPOINT_PATH}")
+            print(f"  Starting fresh training instead...")
+            start_epoch = 1
+            best_accuracy = 0.0
+    
+    # Update config with start epoch
+    config['start_epoch'] = start_epoch
+    config['resume_best_accuracy'] = best_accuracy
     
     # Model statistics
     total_params = sum(p.numel() for p in model.parameters())
@@ -192,11 +329,27 @@ def main():
     print(f"\nInitializing VQA trainer...")
     trainer = VQATrainer(model, train_loader, val_loader, torch.device(config['device']), config)
     
+    # Set resume state if loading from checkpoint
+    if RESUME_TRAINING and best_accuracy > 0:
+        trainer.best_accuracy = best_accuracy
+        print(f"  ✓ Trainer initialized with best accuracy: {best_accuracy:.4f}")
+    
     # Start training
     print(f"\n{'='*80}")
-    print(f"STARTING ENHANCED TRAINING")
+    if RESUME_TRAINING:
+        print(f"RESUMING ENHANCED TRAINING FROM EPOCH {start_epoch}")
+    else:
+        print(f"STARTING ENHANCED TRAINING")
     print(f"{'='*80}")
-    print(f"Training for {config['num_epochs']} epochs with:")
+    
+    total_epochs = config['num_epochs']
+    remaining_epochs = total_epochs - (start_epoch - 1)
+    
+    print(f"Training configuration:")
+    print(f"  Total epochs: {total_epochs}")
+    print(f"  Starting from epoch: {start_epoch}")
+    print(f"  Remaining epochs: {remaining_epochs}")
+    print(f"  Previous best accuracy: {best_accuracy:.4f}" if best_accuracy > 0 else "  No previous best accuracy")
     print(f"  Decoder LR: {config['decoder_lr']:.2e}")
     print(f"  Encoder LR: {config['encoder_lr']:.2e}")
     print(f"  Vision LR: {config['vision_lr']:.2e}")
@@ -207,19 +360,36 @@ def main():
     print(f"  Wandb logging: {config.get('use_wandb', False)}")
     
     try:
-        best_accuracy = trainer.train(config['num_epochs'])
+        # Calculate remaining epochs and train
+        if RESUME_TRAINING:
+            remaining_epochs = total_epochs - (start_epoch - 1)
+            print(f"\nTraining {remaining_epochs} remaining epochs...")
+            
+            # Pass the correct start epoch information to trainer
+            final_best_accuracy = trainer.train(remaining_epochs, start_epoch=start_epoch)
+        else:
+            final_best_accuracy = trainer.train(config['num_epochs'], start_epoch=1)
         
         print(f"\n{'='*80}")
         print(f"TRAINING COMPLETED SUCCESSFULLY!")
         print(f"{'='*80}")
-        print(f"Best fuzzy accuracy achieved: {best_accuracy:.4f}")
+        print(f"Final best accuracy achieved: {final_best_accuracy:.4f}")
+        if RESUME_TRAINING and best_accuracy > 0:
+            improvement = final_best_accuracy - best_accuracy
+            print(f"Improvement from resumed training: {improvement:+.4f}")
         print(f"Model and checkpoints saved in current directory")
         print(f"Predictions saved for analysis")
         
     except KeyboardInterrupt:
-        print(f"\nTraining interrupted by user")
+        print(f"Training interrupted by user")
         print(f"Saving current state...")
-        trainer.save_checkpoint(trainer.global_step // len(train_loader), {}, is_best=False)
+        try:
+            # Try to save current checkpoint if possible
+            current_epoch = getattr(trainer, 'current_epoch', 0)
+            trainer.save_checkpoint(current_epoch, {}, is_best=False)
+            print(f"Checkpoint saved for epoch {current_epoch}")
+        except:
+            print(f"Could not save checkpoint")
         
     except Exception as e:
         print(f"\nError during training: {e}")

@@ -336,6 +336,63 @@ class VQATrainer:
         
         self.evaluator = VQAEvaluator(model.decoder_tokenizer)
         
+        # Training state tracking
+        self.current_epoch = 0
+        self.best_accuracy = 0.0
+        self.global_step = 0
+    
+    def save_checkpoint(self, epoch, metrics, is_best=False):
+        """Save training checkpoint with full state"""
+        os.makedirs("checkpoints", exist_ok=True)
+        
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict() if hasattr(self.scheduler, 'state_dict') else None,
+            'best_accuracy': self.best_accuracy,
+            'metrics': metrics,
+            'config': self.config,
+            'global_step': self.global_step
+        }
+        
+        # Save regular checkpoint
+        checkpoint_path = f"checkpoints/checkpoint_epoch_{epoch}.pt"
+        torch.save(checkpoint, checkpoint_path)
+        print(f"Checkpoint saved: {checkpoint_path}")
+        
+        # Save best checkpoint
+        if is_best:
+            best_checkpoint_path = "checkpoints/best_checkpoint.pt"
+            torch.save(checkpoint, best_checkpoint_path)
+            print(f"Best checkpoint saved: {best_checkpoint_path}")
+        
+        # Keep only last 3 checkpoints to save space
+        self._cleanup_old_checkpoints()
+    
+    def _cleanup_old_checkpoints(self, keep_last=3):
+        """Keep only the last few checkpoints to save disk space"""
+        checkpoint_dir = "checkpoints"
+        if not os.path.exists(checkpoint_dir):
+            return
+        
+        checkpoints = []
+        for file in os.listdir(checkpoint_dir):
+            if file.startswith("checkpoint_epoch_") and file.endswith(".pt"):
+                file_path = os.path.join(checkpoint_dir, file)
+                checkpoints.append((file_path, os.path.getmtime(file_path)))
+        
+        # Sort by modification time (newest first)
+        checkpoints.sort(key=lambda x: x[1], reverse=True)
+        
+        # Remove old checkpoints
+        for checkpoint_path, _ in checkpoints[keep_last:]:
+            try:
+                os.remove(checkpoint_path)
+                print(f"Removed old checkpoint: {os.path.basename(checkpoint_path)}")
+            except:
+                pass
+        
     def train_epoch(self):
         """Train for one epoch"""
         self.model.train()
@@ -475,16 +532,17 @@ class VQATrainer:
         return metrics, predictions, all_correct_answers
     
     def train(self, num_epochs):
-        """Enhanced training loop with VQA score tracking"""
-        best_vqa_score = 0
+        """Enhanced training loop with VQA score tracking and checkpoint saving"""
+        best_vqa_score = self.best_accuracy  # Use existing best if resuming
         best_multi_fuzzy = 0
         
-        for epoch in range(num_epochs):
-            print(f"\nEpoch {epoch + 1}/{num_epochs}")
+        for epoch in range(self.current_epoch, self.current_epoch + num_epochs):
+            print(f"\nEpoch {epoch + 1}/{self.current_epoch + num_epochs}")
             print("-" * 80)
             
             # Train
             train_loss = self.train_epoch()
+            self.global_step += len(self.train_loader)
             
             # Evaluate with VQA score
             val_metrics, predictions, all_correct_answers = self.evaluate()
@@ -506,12 +564,24 @@ class VQATrainer:
             print(f"  Multi Exact Accuracy: {val_metrics.get('multi_exact_accuracy', 0.0):.4f}")
             print(f"  Multi Token F1: {val_metrics.get('multi_token_f1', 0.0):.4f}")
             
-            # Save best model based on VQA score (primary metric)
+            # Track best scores
             current_vqa_score = val_metrics.get('vqa_score', 0)
             current_fuzzy_score = val_metrics.get('multi_fuzzy_accuracy', 0)
+            is_best = False
             
+            # Save checkpoint every epoch
+            self.save_checkpoint(epoch + 1, val_metrics, is_best=False)
+            
+            # Save best model based on VQA score (primary metric)
             if current_vqa_score > best_vqa_score:
                 best_vqa_score = current_vqa_score
+                self.best_accuracy = best_vqa_score
+                is_best = True
+                
+                # Save best checkpoint
+                self.save_checkpoint(epoch + 1, val_metrics, is_best=True)
+                
+                # Also save model weights separately for easy loading
                 torch.save(self.model.state_dict(), 'best_vqa_model.pth')
                 print(f"New best VQA score model saved: {best_vqa_score:.4f}")
                 
@@ -531,6 +601,9 @@ class VQATrainer:
                 best_multi_fuzzy = current_fuzzy_score
                 torch.save(self.model.state_dict(), 'best_fuzzy_model.pth')
                 print(f"New best fuzzy accuracy model saved: {best_multi_fuzzy:.4f}")
+            
+            # Update current epoch for potential resuming
+            self.current_epoch = epoch + 1
             
             # Wandb logging if available
             if hasattr(self, 'use_wandb') and self.use_wandb:
