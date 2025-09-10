@@ -76,4 +76,6 @@ def get_improved_config():
         'save_predictions': True,
         'calculate_bleu_rouge': True,
         'calculate_cider': True,
+        
+        'version': "1.1"
     }
