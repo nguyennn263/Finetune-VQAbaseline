@@ -69,7 +69,7 @@ def get_improved_config():
         'use_wandb': False,
         'project_name': 'CXMT5-Vietnamese-VQA',
         'save_every_n_epochs': 1,
-        'keep_last_n_checkpoints': 5,
+        'keep_last_n_checkpoints': 3,
         
         # Enhanced evaluation
         'evaluate_every_n_steps': 5000,
