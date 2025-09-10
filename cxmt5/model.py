@@ -833,6 +833,13 @@ def compute_vqa_score_batch(predictions, all_reference_answers_list):
 def compute_metrics_with_multiple_answers(predictions, all_correct_answers_list, tokenizer=None):
     """Enhanced evaluation metrics supporting multiple correct answers with VQA score"""
     
+    # Safety checks to prevent recursion and invalid inputs
+    if not predictions or not all_correct_answers_list:
+        return {'error': 'Empty predictions or references'}
+    
+    if len(predictions) != len(all_correct_answers_list):
+        return {'error': f'Length mismatch: {len(predictions)} predictions vs {len(all_correct_answers_list)} references'}
+    
     norm_preds = [normalize_vietnamese_answer(pred) for pred in predictions]
     
     metrics = {}
@@ -967,12 +974,27 @@ def compute_metrics_with_multiple_answers(predictions, all_correct_answers_list,
     }
     metrics.update(vqa_score_distribution)
     
-    # Add standard single-answer metrics for comparison
+    # Add standard single-answer metrics for comparison (without recursion)
     first_answers = [correct_answers[0] if correct_answers else "" for correct_answers in all_correct_answers_list]
-    single_metrics = compute_metrics(predictions, first_answers, tokenizer)
     
-    for key, value in single_metrics.items():
-        metrics[f'single_{key}'] = value
+    # Compute single-answer metrics directly
+    norm_preds = [normalize_vietnamese_answer(pred) for pred in predictions]
+    norm_first_answers = [normalize_vietnamese_answer(ref) for ref in first_answers]
+    
+    single_exact_matches = [pred == ref for pred, ref in zip(norm_preds, norm_first_answers)]
+    metrics['single_exact_accuracy'] = sum(single_exact_matches) / len(single_exact_matches) if single_exact_matches else 0.0
+    
+    single_fuzzy_scores = []
+    for pred, ref in zip(norm_preds, norm_first_answers):
+        if pred == ref:
+            single_fuzzy_scores.append(1.0)
+        elif pred in ref or ref in pred:
+            single_fuzzy_scores.append(0.8)
+        else:
+            similarity = SequenceMatcher(None, pred, ref).ratio()
+            single_fuzzy_scores.append(similarity)
+    
+    metrics['single_fuzzy_accuracy'] = sum(single_fuzzy_scores) / len(single_fuzzy_scores) if single_fuzzy_scores else 0.0
     
     metrics['total_samples'] = len(predictions)
     metrics['multi_exact_matches'] = sum(multi_exact_matches)
@@ -982,9 +1004,18 @@ def compute_metrics_with_multiple_answers(predictions, all_correct_answers_list,
 def compute_metrics(predictions, references_or_multi_answers, tokenizer=None):
     """Enhanced compute_metrics that automatically detects multiple answers"""
     
+    # Safety checks
+    if not predictions or not references_or_multi_answers:
+        return {'error': 'Empty predictions or references'}
+    
+    if len(predictions) != len(references_or_multi_answers):
+        return {'error': f'Length mismatch: {len(predictions)} predictions vs {len(references_or_multi_answers)} references'}
+    
+    # Detect multiple answers format
     if len(references_or_multi_answers) > 0 and isinstance(references_or_multi_answers[0], list):
         return compute_metrics_with_multiple_answers(predictions, references_or_multi_answers, tokenizer)
     else:
+        # Convert single answers to multi-answer format for unified processing
         single_answers_as_lists = [[ref] for ref in references_or_multi_answers]
         multi_metrics = compute_metrics_with_multiple_answers(predictions, single_answers_as_lists, tokenizer)
         
