@@ -22,8 +22,8 @@ from cxmt5.trainer import ImprovedVQATrainer
 from transformers import (
     CLIPProcessor, CLIPModel,
     XLMRobertaTokenizer, XLMRobertaModel,
-    T5ForConditionalGeneration, T5Tokenizer,
-    AutoTokenizer, AutoModel
+    T5ForConditionalGeneration, AutoTokenizer,
+    AutoModel
 )
 import pandas as pd
 from torch.utils.data import DataLoader
@@ -92,7 +92,9 @@ def main():
     # Initialize tokenizers and processors
     print(f"\nLoading tokenizers and processors...")
     question_tokenizer = XLMRobertaTokenizer.from_pretrained(config['text_model'])
-    answer_tokenizer = T5Tokenizer.from_pretrained(config['decoder_model'], legacy=False)
+    # Use AutoTokenizer for T5/mT5 for better compatibility
+    from transformers import AutoTokenizer
+    answer_tokenizer = AutoTokenizer.from_pretrained(config['decoder_model'], use_fast=False)
     clip_processor = CLIPProcessor.from_pretrained(config['vision_model'])
 
     # Test multiple answer normalization

@@ -150,9 +150,9 @@ def evaluate_model(model_path, test_questions, config, load_pretrained=True):
     model.eval()
     
     # Prepare test dataset
-    question_tokenizer = AutoTokenizer.from_pretrained(config['text_model'])
+    question_tokenizer = XLMRobertaTokenizer.from_pretrained(config['text_model'])
     answer_tokenizer = AutoTokenizer.from_pretrained(config['decoder_model'])
-    feature_extractor = ViTFeatureExtractor.from_pretrained(config['vision_model'])
+    feature_extractor = CLIPVisionModel.from_pretrained(config['vision_model'])
     
     test_dataset = VietnameseVQADataset(
         test_questions, config['image_dir'], question_tokenizer, answer_tokenizer, feature_extractor
