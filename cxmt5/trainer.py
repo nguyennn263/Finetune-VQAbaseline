@@ -191,31 +191,20 @@ class ImprovedVQATrainer:
         for group in param_groups:
             print(f"  {group['name']}: {len(group['params'])} params, lr={group['lr']}")
     
-    def evaluate_vqa(self, fast_eval=False):
-        """Enhanced VQA evaluation with comprehensive metrics
-        
-        Args:
-            fast_eval: If True, only evaluate first 200 batches for speed
-        """
+    def evaluate_vqa(self):
+        """Enhanced VQA evaluation with comprehensive metrics - Full evaluation only"""
         self.model.eval()
         predictions = []
         ground_truths = []
         total_loss = 0
         
-        # Limit evaluation size for speed during training
-        eval_loader = self.val_loader
-        if fast_eval:
-            max_batches = min(200, len(self.val_loader))
-            print(f"Fast evaluation: using {max_batches} batches out of {len(self.val_loader)}")
-        else:
-            max_batches = len(self.val_loader)
+        # Always use full evaluation
+        max_batches = len(self.val_loader)
         
-        progress_bar = tqdm(eval_loader, desc="Evaluating", leave=False, total=max_batches)
+        progress_bar = tqdm(self.val_loader, desc="Evaluating", leave=False, total=max_batches)
         
         with torch.no_grad():
             for batch_idx, batch in enumerate(progress_bar):
-                if fast_eval and batch_idx >= max_batches:
-                    break
                     
                 # Move batch to device
                 for key in batch:
@@ -501,7 +490,7 @@ class ImprovedVQATrainer:
             train_loss = self.train_epoch(current_epoch - 1)  # train_epoch expects 0-indexed
             
             # Evaluate (full evaluation at end of epoch)
-            val_metrics, predictions, ground_truths = self.evaluate_vqa(fast_eval=False)
+            val_metrics, predictions, ground_truths = self.evaluate_vqa()
             
             # Print comprehensive results
             print(f"\nEpoch {current_epoch} Results:")
@@ -685,46 +674,6 @@ class ImprovedVQATrainer:
                     'global_step': self.global_step
                 })
             
-            # More frequent evaluation during early training for debugging
-            eval_freq = self.config.get('evaluate_every_n_steps', 1000)
-            if epoch < 2:  # More frequent eval in first 2 epochs
-                eval_freq = min(eval_freq, 5000)
-            
-            if (eval_freq > 0 and self.global_step % eval_freq == 0):
-                print(f"\nEvaluating at step {self.global_step}...")
-                val_metrics, predictions, ground_truths = self.evaluate_vqa(fast_eval=True)  # Fast eval during training
-                
-                # Step-level logging for debugging
-                print(f"Step {self.global_step} metrics:")
-                print(f"  Accuracy: {val_metrics['accuracy']:.4f}")
-                print(f"  Fuzzy Accuracy: {val_metrics['fuzzy_accuracy']:.4f}")
-                print(f"  F1 Score: {val_metrics['f1_score']:.4f}")
-                
-                # BLEU/ROUGE diagnostic logging
-                if val_metrics.get('bleu_1') is not None:
-                    print(f"  BLEU-1: {val_metrics.get('bleu_1', 0.0):.4f} (zero count: {val_metrics.get('bleu_zero_count', 'N/A')})")
-                if val_metrics.get('rougel') is not None or val_metrics.get('rouge_l') is not None:
-                    rouge_score = val_metrics.get('rougel', val_metrics.get('rouge_l', 0.0))
-                    print(f"  ROUGE-L: {rouge_score:.4f}")
-                
-                if self.use_wandb:
-                    step_log_dict = {
-                        'step_val_accuracy': val_metrics['accuracy'],
-                        'step_val_fuzzy_accuracy': val_metrics['fuzzy_accuracy'],
-                        'step_val_f1_score': val_metrics['f1_score'],
-                        'global_step': self.global_step
-                    }
-                    
-                    # Safe BLEU/ROUGE logging
-                    if val_metrics.get('bleu_1') is not None:
-                        step_log_dict['step_val_bleu_1'] = val_metrics.get('bleu_1', 0)
-                    if val_metrics.get('rougel') is not None:
-                        step_log_dict['step_val_rougel'] = val_metrics.get('rougel', 0)
-                    elif val_metrics.get('rouge_l') is not None:
-                        step_log_dict['step_val_rouge_l'] = val_metrics.get('rouge_l', 0)
-                    
-                    wandb.log(step_log_dict)
-                
-                self.model.train()  # Back to training mode
+            # No evaluation during training - only at end of epoch
         
         return total_loss / num_batches
