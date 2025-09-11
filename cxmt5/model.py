@@ -696,21 +696,24 @@ class ImprovedVietnameseVQAModel(nn.Module):
             # Create a simple prefix for VQA task
             batch_size = encoder_outputs.last_hidden_state.shape[0]
             
-            # Enhanced generation with special token suppression
+            # Enhanced generation with aggressive repetition prevention
             generated_ids = self.text_decoder.generate(
                 encoder_outputs=encoder_outputs,
-                max_new_tokens=12,  # Shorter for cleaner outputs
-                min_length=2,
-                num_beams=1,  # Greedy search for consistency
+                max_new_tokens=16,  # Increase for more content
+                min_length=3,       # Ensure minimum output
+                num_beams=3,        # Use beam search for better quality
                 pad_token_id=pad_token_id,
                 eos_token_id=eos_token_id,
-                do_sample=False,
+                do_sample=True,     # Enable sampling to avoid repetition
+                temperature=0.8,    # Add some randomness
+                top_p=0.9,          # Nucleus sampling
                 use_cache=True,
                 output_scores=False,
                 return_dict_in_generate=False,
-                repetition_penalty=1.1,  # Reduce repetition
-                length_penalty=1.0,      # Neutral length preference
-                bad_words_ids=[[token_id] for token_id in special_token_ids[:50]] if special_token_ids else None  # Suppress special tokens
+                repetition_penalty=2.0,    # Strong repetition penalty
+                length_penalty=1.2,        # Encourage longer outputs
+                no_repeat_ngram_size=2,    # Prevent 2-gram repetition
+                bad_words_ids=[[token_id] for token_id in special_token_ids[:10]] if special_token_ids else None  # Suppress most problematic tokens
             )
             
             return generated_ids
@@ -781,12 +784,46 @@ class ImprovedVietnameseVQAModel(nn.Module):
         return bad_words if bad_words else None
 
     def clean_generated_text(self, text):
-        """Enhanced cleaning for mT5 generated text"""
+        """Enhanced cleaning for mT5 generated text with T5-style mask extraction"""
         if not isinstance(text, str):
             return ""
         
-        # Remove all T5/mT5 special tokens (more comprehensive)
-        text = re.sub(r'<extra_id_\d+>', '', text)  # Remove <extra_id_0>, <extra_id_1>, etc.
+        # Function to extract text from T5/mT5 mask format
+        def extract_text_from_masks(text, num_masks=1):
+            """Extract text between <extra_id_> tokens"""
+            try:
+                list_of_text = []
+                for i in range(num_masks):
+                    prev_id = '<extra_id_' + str(i) + '>'
+                    curr_id = '<extra_id_' + str(i+1) + '>'
+                    
+                    if prev_id in text and curr_id in text:
+                        st_token_index = text.index(prev_id)
+                        end_token_index = text.index(curr_id)
+                        extracted = text[st_token_index + len(prev_id):end_token_index].strip()
+                        if extracted:  # Only add non-empty extractions
+                            list_of_text.append(extracted)
+                    elif prev_id in text:
+                        # Handle case where there's only one mask at the beginning
+                        st_token_index = text.index(prev_id)
+                        extracted = text[st_token_index + len(prev_id):].strip()
+                        if extracted:
+                            list_of_text.append(extracted)
+                
+                return ' '.join(list_of_text) if list_of_text else ""
+            except:
+                return ""
+        
+        # First try to extract using T5 mask format
+        if '<extra_id_' in text:
+            extracted = extract_text_from_masks(text, num_masks=5)  # Try up to 5 masks
+            if extracted:
+                text = extracted
+            else:
+                # If extraction fails, fall back to simple removal
+                text = re.sub(r'<extra_id_\d+>', '', text)
+        
+        # Remove other T5/mT5 special tokens
         text = re.sub(r'<pad>', '', text)
         text = re.sub(r'<unk>', '', text)
         text = re.sub(r'</s>', '', text)
@@ -796,7 +833,7 @@ class ImprovedVietnameseVQAModel(nn.Module):
         # Remove any remaining angle bracket tokens
         text = re.sub(r'<[^>]*>', '', text)
         
-        # Clean up special characters and artifacts
+        # Clean up special characters and artifacts (more permissive)
         text = re.sub(r'[~$()[\]{}]', '', text)  # Remove common artifacts
         text = re.sub(r'[^\w\sàáảãạâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđĐ.,!?-]', '', text)
         
@@ -807,9 +844,15 @@ class ImprovedVietnameseVQAModel(nn.Module):
         # Remove leading/trailing punctuation artifacts
         text = re.sub(r'^[.,\s]+|[.,\s]+$', '', text)
         
-        # Remove very short meaningless outputs
+        # Clean and validate result (more lenient threshold)
         cleaned = text.strip()
-        if len(cleaned) <= 2 or cleaned.isdigit():
+        
+        # More lenient filtering - only filter out very short or purely numeric
+        if len(cleaned) == 0:
+            return ""
+        elif len(cleaned) == 1 and cleaned.isdigit():
+            return ""
+        elif cleaned.lower() in ['a', 'an', 'the', 'và', 'của', 'là']:  # Filter common stop words
             return ""
         
         return cleaned
